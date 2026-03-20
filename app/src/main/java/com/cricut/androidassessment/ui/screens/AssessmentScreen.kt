@@ -1,5 +1,10 @@
 package com.cricut.androidassessment.ui.screens
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.with
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -11,6 +16,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.cricut.androidassessment.model.Answer
 import com.cricut.androidassessment.model.Question
@@ -22,35 +28,45 @@ fun AssessmentScreen(
     modifier: Modifier = Modifier,
     viewModel: AssessmentViewModel = viewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    if (uiState.isQuizComplete) {
-        QuizCompleteScreen(
-            onRestart = viewModel::onRestart,
-            modifier = modifier
-        )
-    } else {
-        val currentQuestion = uiState.currentQuestion
-        if (currentQuestion != null) {
-            QuestionContent(
-                question = currentQuestion,
-                answer = uiState.currentAnswer,
-                onAnswer = viewModel::onAnswer,
-                onNext = viewModel::onNext,
-                onPrevious = viewModel::onPrevious,
-                hasPrevious = uiState.hasPrevious,
-                hasNext = uiState.hasNext,
-                canProceed = uiState.canProceed,
-                modifier = modifier
-            )
+    Box(modifier = modifier.fillMaxSize()) {
+        when {
+            uiState.isLoading -> {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            }
+            uiState.isQuizComplete -> {
+                QuizCompleteScreen(
+                    onRestart = viewModel::onRestart,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            else -> {
+                val currentQuestion = uiState.currentQuestion
+                if (currentQuestion != null) {
+                    QuestionContent(
+                        question = currentQuestion,
+                        answer = uiState.currentAnswer,
+                        progress = uiState.progress,
+                        onAnswer = viewModel::onAnswer,
+                        onNext = viewModel::onNext,
+                        onPrevious = viewModel::onPrevious,
+                        hasPrevious = uiState.hasPrevious,
+                        hasNext = uiState.hasNext,
+                        canProceed = uiState.canProceed
+                    )
+                }
+            }
         }
     }
 }
 
+@OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun QuestionContent(
     question: Question,
     answer: Answer?,
+    progress: Float,
     onAnswer: (Answer) -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
@@ -65,44 +81,61 @@ fun QuestionContent(
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text = question.text,
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 24.dp)
+        LinearProgressIndicator(
+            progress = progress,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 16.dp)
         )
 
-        Box(modifier = Modifier.weight(1f)) {
-            when (question) {
-                is Question.TrueFalse -> {
-                    TrueFalseQuestion(
-                        selected = (answer as? Answer.TrueFalse)?.value,
-                        onSelected = { onAnswer(Answer.TrueFalse(it)) }
-                    )
-                }
-                is Question.MultipleChoice -> {
-                    MultipleChoiceQuestion(
-                        options = question.options,
-                        selected = (answer as? Answer.MultipleChoice)?.index,
-                        onSelected = { onAnswer(Answer.MultipleChoice(it)) }
-                    )
-                }
-                is Question.MultipleSelection -> {
-                    MultipleSelectionQuestion(
-                        options = question.options,
-                        selectedIndices = (answer as? Answer.MultipleSelection)?.indices ?: emptySet(),
-                        onToggle = { index ->
-                            val current = (answer as? Answer.MultipleSelection)?.indices ?: emptySet()
-                            val next = if (current.contains(index)) current - index else current + index
-                            onAnswer(Answer.MultipleSelection(next))
+        AnimatedContent(
+            targetState = question,
+            transitionSpec = {
+                fadeIn() with fadeOut()
+            },
+            modifier = Modifier.weight(1f)
+        ) { targetQuestion ->
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = targetQuestion.text,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 24.dp)
+                )
+
+                Box(modifier = Modifier.weight(1f)) {
+                    when (targetQuestion) {
+                        is Question.TrueFalse -> {
+                            TrueFalseQuestion(
+                                selected = (answer as? Answer.TrueFalse)?.value,
+                                onSelected = { onAnswer(Answer.TrueFalse(it)) }
+                            )
                         }
-                    )
-                }
-                is Question.OpenEnded -> {
-                    OpenEndedQuestion(
-                        text = (answer as? Answer.OpenEnded)?.text ?: "",
-                        onTextChanged = { onAnswer(Answer.OpenEnded(it)) }
-                    )
+                        is Question.MultipleChoice -> {
+                            MultipleChoiceQuestion(
+                                options = targetQuestion.options,
+                                selected = (answer as? Answer.MultipleChoice)?.index,
+                                onSelected = { onAnswer(Answer.MultipleChoice(it)) }
+                            )
+                        }
+                        is Question.MultipleSelection -> {
+                            MultipleSelectionQuestion(
+                                options = targetQuestion.options,
+                                selectedIndices = (answer as? Answer.MultipleSelection)?.indices ?: emptySet(),
+                                onToggle = { index ->
+                                    val current = (answer as? Answer.MultipleSelection)?.indices ?: emptySet()
+                                    val next = if (current.contains(index)) current - index else current + index
+                                    onAnswer(Answer.MultipleSelection(next))
+                                }
+                            )
+                        }
+                        is Question.OpenEnded -> {
+                            OpenEndedQuestion(
+                                text = (answer as? Answer.OpenEnded)?.text ?: "",
+                                onTextChanged = { onAnswer(Answer.OpenEnded(it)) }
+                            )
+                        }
+                    }
                 }
             }
         }
